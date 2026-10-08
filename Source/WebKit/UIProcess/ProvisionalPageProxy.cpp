@@ -49,6 +49,7 @@
 #include "WebBackForwardListItem.h"
 #include "WebBackForwardListMessages.h"
 #include "WebErrors.h"
+#include "WebFrameMessages.h"
 #include "WebFrameProxy.h"
 #include "WebNavigationDataStore.h"
 #include "WebNavigationState.h"
@@ -256,6 +257,12 @@ void ProvisionalPageProxy::cancel()
 
     PROVISIONALPAGEPROXY_RELEASE_LOG(ProcessSwapping, "cancel: Simulating a didFailProvisionalLoadForFrame");
     ASSERT(mainFrame);
+
+    // The WebContent process does not know its provisional load is being cancelled. Under site
+    // isolation this page may be kept as a remote page and reused by the next provisional load in
+    // the same process, so tear down the provisional frame there to avoid a duplicate LocalFrame.
+    if (RefPtr page = m_page.get(); page && protect(page->preferences())->siteIsolationEnabled())
+        protect(process())->send(Messages::WebFrame::DestroyProvisionalFrame(), mainFrame->frameID());
     auto error = WebKit::cancelledError(m_request);
     error.setType(WebCore::ResourceError::Type::Cancellation);
     auto securityOriginData = SecurityOriginData::fromURLWithoutStrictOpaqueness(m_request.url());

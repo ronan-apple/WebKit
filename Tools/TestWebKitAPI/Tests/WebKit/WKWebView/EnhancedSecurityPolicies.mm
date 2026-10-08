@@ -898,6 +898,38 @@ static void runOpenerThenSelfNavigation(bool useSiteIsolation)
 
 TEST_WITH_AND_WITHOUT_SITE_ISOLATION(OpenerThenSelfNavigation)
 
+// The test set up here is a little tricky. The opener navigates itself which
+// starts, but never commits.
+//
+// Then, the popup navigates the opener while the opener's provisional page
+// (in the secure.final.internal process) is still pending.
+//
+// This cancels the provisional page, and the next navigation goes into the same
+// process.
+static void runOpenerNavigatedWhileSelfNavigationIsProvisional(bool useSiteIsolation)
+{
+    HTTPServer plaintextServer({
+        { "http://insecure.example.internal/"_s, { "<script>alert('initial-page'); window.open('https://secure.different.internal/'); window.location = 'https://secure.final.internal/self-navigate';</script>"_s } }
+    });
+
+    HTTPServer secureServer({
+        { "/"_s, { "<script>setTimeout(function() { alert('opened-window'); alert(!!window.opener); window.opener.location = 'https://secure.final.internal/navigated'; }, 500);</script>"_s } },
+        { "/self-navigate"_s, { HTTPResponse::Behavior::NeverSendResponse } },
+        { "/navigated"_s, { "<script>alert('navigated');</script>"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto webView = enhancedSecurityTestConfiguration(&plaintextServer, &secureServer, useSiteIsolation);
+
+    loadRequestAndCheckEnhancedSecurityAlerts(webView, @"http://insecure.example.internal/", {
+        { "initial-page"_s, ExpectedEnhancedSecurity::Enabled },
+        { "opened-window"_s, ExpectedEnhancedSecurity::Enabled },
+        { "true"_s, ExpectedEnhancedSecurity::Enabled },
+        { "navigated"_s, ExpectedEnhancedSecurity::Enabled },
+    });
+}
+
+TEST_WITH_AND_WITHOUT_SITE_ISOLATION(OpenerNavigatedWhileSelfNavigationIsProvisional)
+
 static void runHttpOpeningHttpsNoOpener(bool useSiteIsolation)
 {
     HTTPServer plaintextServer({
